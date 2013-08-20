@@ -10,4 +10,4 @@ if __name__ == '__main__':
     s = Solver(debugLevel=2)
     s.initializeFromFile('data/4_1')
     result = s.solve()
-    Utility.printSolution(result)
+    print Utility.formatSolution(result)

@@ -11,16 +11,16 @@ class Solver:
     '''
     Solver class used to solve the MathDoku problem.
     '''
-        
+    
     __debugLevel = 0
     __iterationCount = 0
     
     __initFlag = False
     
     boardSize = 0
-    groups = None
+    cages = None
 
-    def __init__(self, debugLevel=2):
+    def __init__(self, debugLevel=0):
         '''
         Constructor for Solver class.
         Accepts debugLevel:
@@ -52,28 +52,28 @@ class Solver:
         parts = lines[0].split()
         
         self.boardSize = int(parts[0])
-        groupsCount = int(parts[1])
-        self.groups = [None]*groupsCount
+        cageCount = int(parts[1])
+        self.cages = [None]*cageCount
         
         try:
-            for i in range(self.boardSize+1, self.boardSize+groupsCount+1):
+            for i in range(self.boardSize+1, self.boardSize+cageCount+1):
                 parts = lines[i].split()
                 
-                g = Group()
-                g.op = parts[1]
-                g.value = int(parts[2])
+                cage = Cage()
+                cage.op = parts[1]
+                cage.value = int(parts[2])
                 
-                self.groups[int(parts[0])] = g
+                self.cages[int(parts[0])] = cage
             
             for i in range(0, self.boardSize):
                 parts = lines[i+1].split()
                 
                 for j in range(0, self.boardSize):
-                    groupIndex = int(parts[j])
-                    self.groups[groupIndex].boxes.append([i,j])
+                    cageIndex = int(parts[j])
+                    self.cages[cageIndex].cells.append([i,j])
             
         except Exception:
-            raise InputError('Expecting board size of %d and %d groups.' % (self.boardSize, groupsCount))
+            raise InputError('Expecting board size of %d and %d cages.' % (self.boardSize, cageCount))
         
         self.__validate()
         self.__initFlag = True 
@@ -91,29 +91,29 @@ class Solver:
         domain = [[range(1, self.boardSize+1) for y in range(0, self.boardSize)] for x in range(0, self.boardSize)]
         conf = [[None]*self.boardSize for x in range(0, self.boardSize)]
         
-        for g in self.groups:
-            # First pass - assign all single cell groups
-            if len(g.boxes) == 1:
-                x = g.boxes[0][0]
-                y = g.boxes[0][1]
-                self.__setValue(domain, conf, x, y, g.value)
+        for cage in self.cages:
+            # First pass - assign all single cell cages
+            if len(cage.cells) == 1:
+                x = cage.cells[0][0]
+                y = cage.cells[0][1]
+                self.__setValue(domain, conf, x, y, cage.value)
         
             # Second pass - heuristics
-            # Group using multiplication operation: domains must be a factor of the group value
-            elif g.op == Op.MULTIPLICATION:
-                for box in g.boxes:
-                    x = box[0]
-                    y = box[1]
+            # Cage using multiplication operation: domains must be a factor of the cage value
+            elif cage.op == Op.MULTIPLICATION:
+                for cell in cage.cells:
+                    x = cell[0]
+                    y = cell[1]
                     
                     toRemove = set()
                     
                     for d in domain[x][y]:
-                        if g.value % d != 0:
+                        if cage.value % d != 0:
                             toRemove.add(d)
                     
                     domain[x][y] = list(set(domain[x][y])-toRemove)
         
-        # Propagating constraints also removes all infeasible number combinations from each group
+        # Propagating constraints also removes all infeasible number combinations from each cage
         self.__propagateConstraints(domain, conf)
         
         # Third pass - greedy
@@ -143,25 +143,25 @@ class Solver:
             print '----------------'
             print 'Iteration %d' % self.__iterationCount
             print '----------------'
-            Utility.printSolution(node.conf)
+            print Utility.formatSolution(node.conf)
         
         # Assign next value, and check constraints
         if node.value != None:
             self.__setValue(node.domain, node.conf, node.x, node.y, node.value)
-            if not ConstraintStore.checkConstraints(self.boardSize, self.groups, node.domain, node.conf, debugLevel=self.__debugLevel):
+            if not ConstraintStore.checkConstraints(self.boardSize, self.cages, node.domain, node.conf, debugLevel=self.__debugLevel):
                 return False
         
-        # Done if all boxes are assigned
-        unassignedBoxes = filter(lambda x: node.conf[x[0]][x[1]] == None, itertools.product(range(0, self.boardSize), range(0, self.boardSize)))
-        if len(unassignedBoxes) == 0:
+        # Done if all cells are assigned
+        unassignedCells = filter(lambda x: node.conf[x[0]][x[1]] == None, itertools.product(range(0, self.boardSize), range(0, self.boardSize)))
+        if len(unassignedCells) == 0:
             if self.__debugLevel >= 2: print 'Solution found!'
             return True
         
-        # Get next box
-        unassignedBoxes = sorted(unassignedBoxes, key=lambda x: len(node.domain[x[0]][x[1]]))
-        box = unassignedBoxes[0]
-        x = box[0]
-        y = box[1]
+        # Get next cell
+        unassignedCells = sorted(unassignedCells, key=lambda x: len(node.domain[x[0]][x[1]]))
+        cell = unassignedCells[0]
+        x = cell[0]
+        y = cell[1]
         
         # Try each domain value
         for value in node.domain[x][y]:
@@ -213,27 +213,27 @@ class Solver:
                         if len(d) == 1:
                             self.__setValue(domain, conf, i, y, d[0])
         
-        # Propagate to all groups 
-        for group in self.groups:
-            boxCount = len(group.boxes)
-            if len(group.boxes) > 1:
-                # Try every possible combination of the domain of each boxes
+        # Propagate to all cages 
+        for cage in self.cages:
+            cellCount = len(cage.cells)
+            if len(cage.cells) > 1:
+                # Try every possible combination of the domain of each cells
                 # and only keep feasible values
-                d = tuple(map(lambda box: domain[box[0]][box[1]], group.boxes))
-                feasibleDomain = [set() for x in range(0, boxCount)]
+                d = tuple(map(lambda cell: domain[cell[0]][cell[1]], cage.cells))
+                feasibleDomain = [set() for x in range(0, cellCount)]
                 
                 comb = list(itertools.product(*d))
                 
                 for c in comb:
-                    groupCalcValue = group.func(*c)
-                    if float(group.value) == groupCalcValue:
-                        for i in range(0, boxCount):
+                    cageCalcValue = cage.func(*c)
+                    if float(cage.value) == cageCalcValue:
+                        for i in range(0, cellCount):
                             feasibleDomain[i].add(c[i])
                 
-                for i in range(0, boxCount):
-                    box = group.boxes[i]
-                    x = box[0]
-                    y = box[1]
+                for i in range(0, cellCount):
+                    cell = cage.cells[i]
+                    x = cell[0]
+                    y = cell[1]
                     
                     newDomain = list(set(domain[x][y])&feasibleDomain[i])
                     removeCount += len(domain[x][y])-len(newDomain) 
@@ -246,44 +246,44 @@ class Solver:
         Initial validation of the problem.
         '''
         
-        # All groups' cells must be attached to one another.
-        for i in range(0, len(self.groups)):
-            g = self.groups[i]
+        # All cages' cells must be attached to one another.
+        for i in range(0, len(self.cages)):
+            cage = self.cages[i]
             
-            if len(g.boxes) > 1:
-                valid = [False]*len(g.boxes)
+            if len(cage.cells) > 1:
+                valid = [False]*len(cage.cells)
                 
-                for i in range(0, len(g.boxes)):
+                for i in range(0, len(cage.cells)):
                     if not valid[i]:
-                        c1 = g.boxes[i]
+                        c1 = cage.cells[i]
                         
-                        for j in range(0, len(g.boxes)):
-                            c2 = g.boxes[j]
+                        for j in range(0, len(cage.cells)):
+                            c2 = cage.cells[j]
                             
                             if abs(c1[0]-c2[0])+abs(c1[1]-c2[1]) == 1:
                                 valid[i] = True
                                 valid[j] = True
                         
-                if False in valid: raise InputError ('Group #%d cells are not attached.' % i)
+                if False in valid: raise InputError ('Cage #%d cells are not attached.' % i)
             
-            # Check valid group operation
-            if not g.op in [Op.ADDITION, Op.SUBTRACTION, Op.MULTIPLICATION, Op.DIVISION]: raise InputError ('Invalid operation in group #%d: %s' % (i, g.op))    
+            # Check for invalid operation
+            if not cage.op in [Op.ADDITION, Op.SUBTRACTION, Op.MULTIPLICATION, Op.DIVISION]: raise InputError ('Invalid operation in cage #%d: %s' % (i, cage.op))    
 
-class Group:
+class Cage:
     '''
-    Represents a group of MathDoku boxes with an operation and value.
+    Represents a cage of MathDoku cells with an operation and value.
     '''
     
-    boxes = None
+    cells = None
     op = None
     value = None
     
     def __init__(self):
-        self.boxes = list()
+        self.cells = list()
     
     def func(self, *n):
         '''
-        Executes the group function on the given values tuple.
+        Executes the cage function on the given values tuple.
         '''
         
         values = sorted(n, reverse=True)
@@ -342,7 +342,7 @@ class ConstraintStore:
     '''
     
     @staticmethod
-    def checkConstraints(boardSize, groups, domain, conf, debugLevel=0):
+    def checkConstraints(boardSize, cages, domain, conf, debugLevel=0):
         '''
         Returns true if none of the constraints are broken, false otherwise.
         '''
@@ -388,17 +388,17 @@ class ConstraintStore:
                 return False
             
         
-        # 3 - Group calculation is correct
-        for i in range(0, len(groups)):
-            group = groups[i]
+        # 3 - Cage calculation is correct
+        for i in range(0, len(cages)):
+            cage = cages[i]
             
-            values = tuple(map(lambda x: conf[x[0]][x[1]], group.boxes))
+            values = tuple(map(lambda x: conf[x[0]][x[1]], cage.cells))
             
             if not None in values:
-                groupCalcValue = group.func(*values)
+                cageCalcValue = cage.func(*values)
                 
-                if float(group.value) != groupCalcValue:
-                    if debugLevel >= 2: print 'Group #%d constraint violated.' % i
+                if float(cage.value) != cageCalcValue:
+                    if debugLevel >= 2: print 'Cage #%d constraint violated.' % i
                     return False 
         
         return True
